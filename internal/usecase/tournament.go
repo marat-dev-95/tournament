@@ -36,9 +36,9 @@ func (t *Tournament) Run() (*entity.Team, error) {
 	winnersFirstDivisionTeams := runDivisionGames(firstDivision)
 	winnersSecondDivisionTeams := runDivisionGames(secondDivision)
 
-	fmt.Println(winnersFirstDivisionTeams, winnersSecondDivisionTeams)
+	winner := runPlayOffGames(winnersFirstDivisionTeams, winnersSecondDivisionTeams)
 
-	return nil, nil
+	return &winner, nil
 }
 
 func splitToDivisions(teams []entity.Team) ([]entity.Team, []entity.Team, error) {
@@ -79,4 +79,18 @@ func runDivisionGames(teams []entity.Team) []entity.Team {
 	})
 	// возвращаем топ 4 команды по победам
 	return teams[:4]
+}
+
+func runPlayOffGames(firstDivisionTeams []entity.Team, secondDivisionTeams []entity.Team) entity.Team {
+	//лучшие играют с худшими далее победители с победителями
+	return runGame(
+		runGame(
+			runGame(firstDivisionTeams[0], secondDivisionTeams[3]),
+			runGame(secondDivisionTeams[0], firstDivisionTeams[3]),
+		),
+		runGame(
+			runGame(firstDivisionTeams[1], secondDivisionTeams[2]),
+			runGame(secondDivisionTeams[1], firstDivisionTeams[2]),
+		),
+	)
 }

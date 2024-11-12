@@ -32,5 +32,12 @@ func main() {
 		log.Fatal(err.Error())
 	}
 
-	tournament.Run()
+	winner, err := tournament.Run()
+
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	log.Printf("%s is the winner of the tournament", winner.Name)
+
 }
