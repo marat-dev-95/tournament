@@ -1,43 +1,80 @@
 package main
 
 import (
+	"database/sql"
 	"log"
-	"tournament/internal/entity"
+	"os"
+	"tournament/internal/handler"
+	"tournament/internal/repository/pgsql"
 	"tournament/internal/usecase"
+
+	"github.com/gin-gonic/gin"
+	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
+	_ "github.com/lib/pq"
 )
 
 func main() {
-	teams := []entity.Team{
-		{Name: "Team spirit"},
-		{Name: "Team secret"},
-		{Name: "Tundra"},
-		{Name: "Virtus pro"},
-		{Name: "Liquid"},
-		{Name: "Heroic"},
-		{Name: "NaVi"},
-		{Name: "LGD"},
-		{Name: "Falcons"},
-		{Name: "Team Waska"},
-		{Name: "Xtreme Gaming"},
-		{Name: "Azure ray"},
-		{Name: "Nouns"},
-		{Name: "Avulus"},
-		{Name: "Nigma"},
-		{Name: "Gaming Gladiators"},
+	db := InitDB()
+	defer db.Close()
+
+	if err := InitMigrations(db); err != nil {
+		log.Fatalf("Ошибка миграции: %v", err)
 	}
 
-	tournament, err := usecase.NewTournament(teams)
+	router := gin.Default()
 
+	tournamentRepository := pgsql.NewTournamentRepository(db)
+	gameRepository := pgsql.NewGameRepository(db)
+	tournamentUsecase := usecase.NewTournamentUsecase(tournamentRepository, gameRepository)
+
+	tournamentHandler := handler.NewTournamentHandler(tournamentUsecase)
+
+	router.POST("/tournaments", tournamentHandler.CreateTournament)
+	router.POST("/tournaments/:id", tournamentHandler.DeleteTournament)
+	router.POST("/tournaments/:id/teams", tournamentHandler.AddTeam)
+	router.GET("/tournaments/:id/run", tournamentHandler.RunTournament)
+
+	router.Run()
+}
+
+func InitDB() *sql.DB {
+	dbUser := os.Getenv("POSTGRES_USER")
+	dbPassword := os.Getenv("POSTGRES_PASSWORD")
+	dbHost := os.Getenv("DB_HOST")
+	dbPort := os.Getenv("DB_PORT")
+	dbName := os.Getenv("POSTGRES_DB")
+
+	dsn := "postgres://" + dbUser + ":" + dbPassword + "@" + dbHost + ":" + dbPort + "/" + dbName + "?sslmode=disable"
+
+	db, err := sql.Open("postgres", dsn)
 	if err != nil {
-		log.Fatal(err.Error())
+		log.Fatalf("Ошибка подключения к базе данных: %v", err)
 	}
 
-	winner, err := tournament.Run()
+	return db
+}
 
+func InitMigrations(db *sql.DB) error {
+	driver, err := postgres.WithInstance(db, &postgres.Config{})
 	if err != nil {
-		log.Fatal(err.Error())
+		return err
 	}
 
-	log.Printf("%s is the winner of the tournament", winner.Name)
+	m, err := migrate.NewWithDatabaseInstance(
+		"file://db/migrations/pgsql",
+		"postgres",
+		driver,
+	)
+	if err != nil {
+		log.Fatalf("Ошибка при создании экземпляра мигратора: %v", err)
+	}
+	err = m.Up()
+	if err != nil && err != migrate.ErrNoChange {
+		log.Fatalf("Ошибка при применении миграций: %v", err)
+	}
 
+	log.Println("Миграции успешно применены!")
+	return nil
 }

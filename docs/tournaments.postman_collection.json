@@ -1,0 +1,108 @@
+{
+	"info": {
+		"_postman_id": "72f4564c-2997-4d75-a69b-3adb1537c8db",
+		"name": "tournaments",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "create tournament",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"name\": \"Dota 2\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{host}}/tournaments",
+					"host": [
+						"{{host}}"
+					],
+					"path": [
+						"tournaments"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Add team to tournament",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"name\": \"Sewf\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{host}}/tournaments/1/teams",
+					"host": [
+						"{{host}}"
+					],
+					"path": [
+						"tournaments",
+						"1",
+						"teams"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Run tournament",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{host}}/tournaments/1/run",
+					"host": [
+						"{{host}}"
+					],
+					"path": [
+						"tournaments",
+						"1",
+						"run"
+					]
+				}
+			},
+			"response": []
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "host",
+			"value": "http://localhost:8080"
+		}
+	]
+}

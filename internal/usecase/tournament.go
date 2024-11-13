@@ -2,43 +2,265 @@ package usecase
 
 import (
 	"errors"
-	"fmt"
-	"sort"
+	"net/http"
 	"time"
 	"tournament/internal/entity"
 
 	"math/rand"
 )
 
-const TEAM_COUNT = 16
-
-type Tournament struct {
-	Teams []entity.Team
+type TournamentUseCase struct {
+	TournamentRepository TournamentRepository
+	GameRepository       GameRepository
 }
 
-func NewTournament(teams []entity.Team) (*Tournament, error) {
-	if len(teams) != TEAM_COUNT {
-		return nil, fmt.Errorf("team count must be %d", TEAM_COUNT)
+func NewTournamentUsecase(tournamentRep TournamentRepository, gameRep GameRepository) *TournamentUseCase {
+	return &TournamentUseCase{
+		TournamentRepository: tournamentRep,
+		GameRepository:       gameRep,
+	}
+}
+
+type CreateTournamentRequest struct {
+	Name string `json:"name" binding:"required"`
+}
+
+type CreateTournamentResponse struct {
+	StatusCode int                `json:"status_code"`
+	Tournament *entity.Tournament `json:"tournament"`
+}
+
+type DeleteTournamentResponse struct {
+	StatusCode int                `json:"status_code"`
+	Tournament *entity.Tournament `json:"tournament"`
+}
+
+type AddTeamRequest struct {
+	Name string `json:"name" binding:"required"`
+}
+
+type AddTeamResponse struct {
+	StatusCode int          `json:"status_code"`
+	Team       *entity.Team `json:"team"`
+}
+
+type TournamentResultResponse struct {
+	StatusCode int         `json:"status_code"`
+	Winner     entity.Team `json:"winner"`
+}
+
+func (t *TournamentUseCase) CreateTournament(req CreateTournamentRequest) (*CreateTournamentResponse, error) {
+
+	tournament := entity.Tournament{
+		Name: req.Name,
 	}
 
-	return &Tournament{
-		Teams: teams,
-	}, nil
-}
-
-func (t *Tournament) Run() (*entity.Team, error) {
-	firstDivision, secondDivision, err := splitToDivisions(t.Teams)
+	res, err := t.TournamentRepository.Create(tournament)
 
 	if err != nil {
 		return nil, err
 	}
 
-	winnersFirstDivisionTeams := runDivisionGames(firstDivision)
-	winnersSecondDivisionTeams := runDivisionGames(secondDivision)
+	return &CreateTournamentResponse{
+		StatusCode: http.StatusOK,
+		Tournament: res,
+	}, nil
+}
 
-	winner := runPlayOffGames(winnersFirstDivisionTeams, winnersSecondDivisionTeams)
+func (t *TournamentUseCase) DeleteTournament(tournamentID int) (*DeleteTournamentResponse, error) {
+	tournament, err := t.TournamentRepository.GetById(tournamentID)
 
-	return &winner, nil
+	if err != nil {
+		return nil, err
+	}
+
+	err = t.TournamentRepository.Delete(*tournament)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &DeleteTournamentResponse{
+		StatusCode: http.StatusOK,
+	}, nil
+}
+
+func (t *TournamentUseCase) AddTeam(tournamentID int, req AddTeamRequest) (*AddTeamResponse, error) {
+	tournament, err := t.TournamentRepository.GetById(tournamentID)
+
+	if err != nil {
+		return nil, err
+	}
+
+	team := entity.Team{
+		Name: req.Name,
+	}
+
+	res, err := t.TournamentRepository.AddTeam(tournament.ID, team)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &AddTeamResponse{
+		StatusCode: http.StatusOK,
+		Team:       res,
+	}, nil
+}
+
+func (t *TournamentUseCase) GenerateDivisionSchedule(tournamentId int) error {
+	teams, err := t.TournamentRepository.GetTeams(tournamentId)
+
+	if err != nil {
+		return err
+	}
+
+	//разделения на два дивизиона
+	firstDivision, secondDivision, err := splitToDivisions(teams)
+
+	if err != nil {
+		return err
+	}
+	//генерация расписания для первого дивизиона
+	for i := 0; i < len(firstDivision); i++ {
+		for j := i + 1; j < len(firstDivision); j++ {
+			_, err := t.GameRepository.Create(tournamentId, firstDivision[i], firstDivision[j], entity.GAME_TYPE_DIVISION_A)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	//генерация расписания для второго дивизиона
+	for i := 0; i < len(secondDivision); i++ {
+		for j := i + 1; j < len(secondDivision); j++ {
+			_, err := t.GameRepository.Create(tournamentId, secondDivision[i], secondDivision[j], entity.GAME_TYPE_DIVISION_B)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (t *TournamentUseCase) GenerateDivisionResult(tournamentID int) error {
+	err := t.GenerateResultByGameType(tournamentID, entity.GAME_TYPE_DIVISION_A)
+
+	if err != nil {
+		return err
+	}
+
+	err = t.GenerateResultByGameType(tournamentID, entity.GAME_TYPE_DIVISION_B)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (t *TournamentUseCase) GeneratePlayoffStage1Schedule(tournamentId int) error {
+	//генерация расписания для первой стадии плейофф
+
+	//берем топ 4 команды с каждого дивизиона и формируем расписание для первой стадии плей офф
+	firstDivisionWinnners, err := t.GameRepository.GetTop4WinnersByType(tournamentId, entity.GAME_TYPE_DIVISION_A)
+	if err != nil {
+		return err
+	}
+	secondDivisionWinners, err := t.GameRepository.GetTop4WinnersByType(tournamentId, entity.GAME_TYPE_DIVISION_B)
+	if err != nil {
+		return err
+	}
+
+	//лучшие играют с худшими с другого дивизиона
+	_, err = t.GameRepository.Create(tournamentId, firstDivisionWinnners[0], secondDivisionWinners[3], entity.GAME_TYPE_PLAYOFF_STAGE_1)
+	if err != nil {
+		return err
+	}
+	_, err = t.GameRepository.Create(tournamentId, secondDivisionWinners[0], firstDivisionWinnners[3], entity.GAME_TYPE_PLAYOFF_STAGE_1)
+	if err != nil {
+		return err
+	}
+	_, err = t.GameRepository.Create(tournamentId, firstDivisionWinnners[1], secondDivisionWinners[2], entity.GAME_TYPE_PLAYOFF_STAGE_1)
+	if err != nil {
+		return err
+	}
+	_, err = t.GameRepository.Create(tournamentId, secondDivisionWinners[1], firstDivisionWinnners[2], entity.GAME_TYPE_PLAYOFF_STAGE_1)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (t *TournamentUseCase) GenerateSemininalSchedule(tournamentID int) error {
+	winners, err := t.GameRepository.GetWinnersByType(tournamentID, entity.GAME_TYPE_PLAYOFF_STAGE_1)
+	if err != nil {
+		return err
+	}
+	// Создаем пары для полуфинала
+	_, err = t.GameRepository.Create(tournamentID, winners[0], winners[3], entity.GAME_TYPE_PLAYOFF_SEMIFINAL)
+	if err != nil {
+		return err
+	}
+
+	_, err = t.GameRepository.Create(tournamentID, winners[1], winners[2], entity.GAME_TYPE_PLAYOFF_SEMIFINAL)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (t *TournamentUseCase) GenerateFinalSchedule(tournamentID int) error {
+	winners, err := t.GameRepository.GetWinnersByType(tournamentID, entity.GAME_TYPE_PLAYOFF_SEMIFINAL)
+	if err != nil {
+		return err
+	}
+	_, err = t.GameRepository.Create(tournamentID, winners[0], winners[1], entity.GAME_TYPE_PLAYOFF_FINAL)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (t *TournamentUseCase) GenerateFinalResult(tournamentID int) (*TournamentResultResponse, error) {
+	err := t.GenerateResultByGameType(tournamentID, entity.GAME_TYPE_PLAYOFF_FINAL)
+	if err != nil {
+		return nil, err
+	}
+	winners, err := t.GameRepository.GetWinnersByType(tournamentID, entity.GAME_TYPE_PLAYOFF_FINAL)
+
+	if err != nil {
+		return nil, err
+	}
+
+	winner := winners[0]
+
+	return &TournamentResultResponse{
+		StatusCode: http.StatusOK,
+		Winner:     winner,
+	}, nil
+}
+
+func (t *TournamentUseCase) GenerateResultByGameType(tournamentID int, gameType int) error {
+	games, err := t.GameRepository.GetByTypeGames(tournamentID, gameType)
+
+	if err != nil {
+		return err
+	}
+
+	for i := 0; i < len(games); i++ {
+		winner := runGame(games[i].Team1ID, games[i].Team2ID)
+		games[i].WinnerId = &winner
+		//обновляем в базе инфу о победителе матча
+		_, err := t.GameRepository.Update(games[i])
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func splitToDivisions(teams []entity.Team) ([]entity.Team, []entity.Team, error) {
@@ -57,40 +279,10 @@ func splitToDivisions(teams []entity.Team) ([]entity.Team, []entity.Team, error)
 	return firstDivision, secondDivision, nil
 }
 
-func runGame(a entity.Team, b entity.Team) entity.Team {
+func runGame(a int, b int) int {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	if rng.Intn(2) == 0 {
 		return a
 	}
 	return b
-}
-
-func runDivisionGames(teams []entity.Team) []entity.Team {
-	results := make(map[entity.Team]int)
-	for i := 0; i < len(teams); i++ {
-		for j := i + 1; j < len(teams); j++ {
-			winner := runGame(teams[i], teams[j])
-			results[winner]++
-		}
-	}
-	// сортируем teams по результатам матчей
-	sort.Slice(teams, func(i, j int) bool {
-		return results[teams[i]] > results[teams[j]]
-	})
-	// возвращаем топ 4 команды по победам
-	return teams[:4]
-}
-
-func runPlayOffGames(firstDivisionTeams []entity.Team, secondDivisionTeams []entity.Team) entity.Team {
-	//лучшие играют с худшими далее победители с победителями
-	return runGame(
-		runGame(
-			runGame(firstDivisionTeams[0], secondDivisionTeams[3]),
-			runGame(secondDivisionTeams[0], firstDivisionTeams[3]),
-		),
-		runGame(
-			runGame(firstDivisionTeams[1], secondDivisionTeams[2]),
-			runGame(secondDivisionTeams[1], firstDivisionTeams[2]),
-		),
-	)
 }
